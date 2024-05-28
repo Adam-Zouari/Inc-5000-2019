@@ -1,0 +1,759 @@
+---
+title: "Inc.5000-2019"
+author: "Zouari Adem"
+format: pdf
+editor: visual
+---
+
+**Introduction**
+
+Mon projet consiste à nettoyer et analyser un ensemble de données sur les 5000 meilleures entreprises en croissance en Amérique en 2019. L'ensemble de données comprend 14 variables et 5013 entreprises. L'objectif est de déterminer quelles industries et quels États ont les meilleurs revenus et taux de croissance. Mon objectif est également de déterminer s'il existe une corrélation entre : "revenu - travailleurs / revenu - années sur la liste / croissance - travailleurs / croissance - années sur la liste" Et mon objectif aussi est de visualiser mes données et finalement prédire le revenue en fonction des années sur la liste et le nombre des travailleurs.
+
+**Source de Dataset:** INC 5000 - 2019 - dataset by aurielle \| data.world
+
+**1.Chargement des données**
+
+```{r warning=FALSE,message=FALSE}
+library(readr)
+library(ggplot2)
+library(dplyr)
+library(e1071)
+library(ggfortify)
+library(plot3D)
+library(randomForest)
+```
+
+```{r message=FALSE}
+inc5000 <- read_csv("C:/Users/Administrator/Downloads/inc5000_2019.csv")
+head(inc5000)
+```
+
+**2.Nettoyage**
+
+**2.1 Vérifier le type de données de chaque colonne**
+
+```{r}
+print(sapply(inc5000, class))
+```
+
+**2.2 Suppression des caractères non numériques et conversion en numérique**
+
+```{r}
+inc5000$revenue <- as.numeric(gsub("[^0-9.]+", "", inc5000$revenue))
+```
+
+**2.3 Vérification du type de la colonne "revenue"**
+
+```{r}
+class(inc5000$revenue)
+```
+
+**2.4 Vérifier s'il y a des valeurs NA dans le dataframe**
+
+```{r}
+if (any(is.na(inc5000))) {
+  na_rows <- which(apply(is.na(inc5000), 1, any))
+  print("Rows containing NA values:")
+  count <- 0  
+  for (row in na_rows) {
+    na_columns <- colnames(inc5000)[which(is.na(inc5000[row, ]))]
+    print(paste("Row with rank", inc5000[row, "rank"],
+    "contains NA values in columns:", paste(na_columns, collapse = ", ")))
+    count <- count + 1  
+    if (count == 10) {
+      break  
+    }
+  }
+} else {
+  print("There are no NA values in the dataframe.")
+}
+
+```
+
+J'ai remarqué que la plupart des valeurs NA sont dans la colonne "metro".
+
+Étape 1 : Vérifier le pourcentage de valeurs NA dans la colonne "metro"
+
+```{r}
+na_count <- sum(is.na(inc5000$metro))
+total_rows <- nrow(inc5000)
+na_percentage <- na_count / total_rows * 100
+print(na_percentage)
+
+if (na_percentage > 50) {
+  print(na_percentage)
+  inc5000 <- inc5000[, !names(inc5000) %in% "metro"]
+  print("The 'metro' column has been removed due to exceeding 50% NA values.")
+} else {
+  print("The 'metro' column does not exceed 50% NA values.")
+}
+```
+
+Le pourcentage est de 16,22 %. Cela signifie que nous pouvons conserver la colonne.
+
+Nous devons la supprimer pour vérifier d'autres valeurs NA :
+
+```{r}
+inc5000 <- inc5000[, !names(inc5000) %in% "metro"]
+```
+
+Ensuite, nous exécutons à nouveau l'étape 2.4.
+
+```{r}
+if (any(is.na(inc5000))) {
+  na_rows <- which(apply(is.na(inc5000), 1, any))
+  print("Rows containing NA values:")
+  for (row in na_rows) {
+    na_columns <- colnames(inc5000)[which(is.na(inc5000[row, ]))]
+    print(paste("Row with rank", inc5000[row, "rank"],
+    "contains NA values in columns:", paste(na_columns, collapse = ", ")))
+  }
+} else {
+  print("There are no NA values in the dataframe.")
+}
+```
+
+Il y a deux lignes : une qui a une valeur NA dans "workers" et l'autre dans "profile". Nous n'utiliserons pas la colonne "profile" donc pas besoin de la supprimer, mais nous utiliserons "workers". Cependant, nous supprimerons la ligne lorsque nous l'utiliserons.
+
+**3 Analyse générale de la variable "revenue"**
+
+```{r message=FALSE}
+inc5000 <- read_csv("C:/Users/Administrator/Downloads/inc5000_2019.csv")
+inc5000$revenue <- as.numeric(gsub("[^0-9.]+", "", inc5000$revenue))
+```
+
+**3.1 Afficher les premières lignes avec les revenus les plus élevés**
+
+```{r}
+head(inc5000[order(inc5000$revenue, decreasing = TRUE), ])
+```
+
+**3.2 Analyse descriptive : analyse univariée de la variable "revenue"**
+
+```{r}
+min(inc5000$revenue)
+
+max(inc5000$revenue)
+
+Q1 <- quantile(inc5000$revenue, 0.25)
+Q2 <- quantile(inc5000$revenue, 0.5)
+Q3 <- quantile(inc5000$revenue, 0.75)
+
+
+print(paste("Q1 (25th percentile):", Q1))
+print(paste("Q2 (50th percentile, median):", Q2))
+print(paste("Q3 (75th percentile):", Q3))
+
+
+
+mean(inc5000$revenue)
+
+var(inc5000$revenue)
+
+sd(inc5000$revenue)
+
+
+boxplot(inc5000$revenue, main = "Boxplot of Revenue", ylab = "Revenue")
+```
+
+**Interpretation :**
+
+-Le maximum 990.6 et le minimum 1 sont très éloignés l'un de l'autre.
+
+-La médiane est de 10,3, ce qui signifie que 50 % des revenus sont inférieurs à 10,3.
+
+-25 % des revenus sont inférieurs à 4,7.
+
+-75 % des revenus sont inférieurs à 26,5.
+
+-L'écart type est de 71,34, ce qui est très élevé et cela montre que les valeurs des revenus sont très dispersées.
+
+-Le diagramme en boîte montre qu'il y a trop de valeurs aberrantes
+
+**3.4 Nettoyage des valeurs aberrantes**
+
+```{r}
+inc5000_revenue <- inc5000[inc5000$revenue <= Q3, ]
+
+boxplot(inc5000_revenue$revenue, main = "Boxplot of Revenue (Outliers
+        Removed)", ylab = "Revenue")
+```
+
+**4.Revenue par industrie.**
+
+**4.1 Créer un diagramme en boîte groupé du revenu par industrie**
+
+```{r}
+ggplot(inc5000_revenue, aes(x = industry, y = revenue)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of Revenue by Industry") +
+  theme(axis.text.x = element_text(angle = 58, hjust = 1))
+```
+
+-J'ai remarqué qu'il y a quelques valeurs aberrantes qui devraient être supprimées car elles ne nous permettent pas de faire des statistiques correctes. Pour ce faire, nous devons vérifier l'écart-type du revenu par industrie et les valeurs correspondantes.
+
+**4.2 Nettoyage des valeurs aberrantes**
+
+```{r}
+inc5000_bound <- inc5000_revenue %>%
+  group_by(industry) %>%
+  mutate(
+    upper_bound = quantile(revenue, 0.75)
+  ) %>%
+  ungroup()
+
+
+inc5000_clean <- inc5000_bound %>%
+  filter(revenue <= upper_bound)
+
+inc5000_clean <- inc5000_clean %>%
+  filter(!(rank %in% c(219,4322,2292,1344,1878,3923)))
+
+```
+
+**4.3 Calculer les statistiques sommaires pour le revenu par industrie.**
+
+```{r}
+summary_stats_clean <- inc5000_clean %>%
+  group_by(industry) %>%
+  summarize(min = min(revenue),
+            max = max(revenue),
+            mean = mean(revenue),
+            q1 = quantile(revenue, probs = 0.25),
+            median = median(revenue),
+            q3 = quantile(revenue, probs = 0.75),
+            variance = var(revenue),
+            sd = sd(revenue)) %>%
+  arrange(desc(mean))
+
+
+print(summary_stats_clean, n = 27)
+```
+
+**4.4 Trouver le groupe de revenus le plus élevé par industrie**
+
+```{r}
+top_revenue <- inc5000_clean %>%
+  group_by(industry) %>%
+  slice_max(order_by = revenue, n = 2)
+
+print(top_revenue,n=66)
+```
+
+-Si nous exécutons à nouveau, nous remarquerons qu'il y a moins de valeurs aberrantes et que les statistiques sont meilleures.
+
+```{r}
+ggplot(inc5000_clean, aes(x = industry, y = revenue)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of Revenue by Industry (Outliners Removed)") +
+  theme(axis.text.x = element_text(angle = 58, hjust = 1))
+
+```
+
+**5.Revenue par état**
+
+**5.1 Créer un diagramme en boîte groupé du revenu par état**
+
+```{r}
+ggplot(inc5000_revenue, aes(x = state, y = revenue)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of Revenue by state") +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+```
+
+-J'ai remarqué qu'il y a quelques valeurs aberrantes qui devraient être supprimées car elles ne nous permettent pas de faire des statistiques correctes. Pour ce faire, nous devons vérifier l'écart-type du revenu par industrie et les valeurs correspondantes.
+
+**5.2Nettoyage des valeurs aberrantes**
+
+```{r}
+inc5000_bound <- inc5000_revenue %>%
+  group_by(state) %>%
+  mutate(
+    upper_bound = quantile(revenue, 0.75)
+  ) %>%
+  ungroup()
+
+inc5000_clean <- inc5000_bound %>%
+  filter(revenue <= upper_bound)
+
+inc5000_clean <- inc5000_clean %>%
+  filter(!(rank %in% c(2170,2533,3488,1057,2748,2487,189)))
+```
+
+**5.3 Calculer les statistiques sommaires pour le revenu par état.**
+
+```{r}
+summary_stats <- inc5000_clean %>%
+  group_by(state) %>%
+  summarize(min = min(revenue),
+            max = max(revenue),
+            mean = mean(revenue),
+            q1 = quantile(revenue, probs = 0.25),
+            median = median(revenue),
+            q3 = quantile(revenue, probs = 0.75),
+            variance = var(revenue),
+            sd = sd(revenue)) %>%
+  arrange(desc(mean))
+
+print(summary_stats,n=51)
+```
+
+**5.4 Trouver le groupe de revenus le plus élevé par état.**
+
+```{r}
+top_revenue <- inc5000_clean %>%
+  group_by(state) %>%
+  slice_max(order_by = revenue, n = 2)
+
+print(top_revenue,n=510)
+```
+
+-Si nous exécutons à nouveau, nous remarquerons qu'il y a moins de valeurs aberrantes et que les statistiques sont meilleures.
+
+```{r}
+ggplot(inc5000_clean, aes(x = state, y = revenue)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of Revenue by state (Outlines Removed)") +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+```
+
+**6 Analyse générale de la variable "growth"**
+
+```{r message=FALSE}
+inc5000 <- read_csv("C:/Users/Administrator/Downloads/inc5000_2019.csv")
+inc5000$revenue <- as.numeric(gsub("[^0-9.]+", "", inc5000$revenue))
+```
+
+**6.1 Afficher les premières lignes avec la croissance la plus élevée**
+
+```{r}
+head(inc5000)
+```
+
+**6.2 Analyse descriptive : analyse univariée de la variable "growth"**
+
+```{r}
+min(inc5000$growth)
+
+max(inc5000$growth)
+
+mean(inc5000$growth)
+
+var(inc5000$growth)
+
+sd(inc5000$growth)
+
+Q1 <- quantile(inc5000$growth, 0.25)
+Q2 <- quantile(inc5000$growth, 0.5)
+Q3 <- quantile(inc5000$growth, 0.75)
+
+print(paste("Q1 (25th percentile):", Q1))
+print(paste("Q2 (50th percentile, median):", Q2))
+print(paste("Q3 (75th percentile):", Q3))
+
+boxplot(inc5000$growth, main = "Boxplot of Growth", ylab = "Growth")
+```
+
+**Interprétation:**
+
+-Le maximum 36680.39 et le minimum 52.1691 sont très éloignés l'un de l'autre.
+
+-La médiane est de 157.5306, ce qui signifie que 50 % des revenus sont inférieurs à 157.5306.
+
+-25 % des revenus sont inférieurs à 90.5625.
+
+-75 % des revenus sont inférieurs à 330.42725.
+
+-L'écart type est de 1284.289, ce qui est très élevé et cela montre que les valeurs des revenus sont très dispersées.
+
+-Le diagramme en boîte montre qu'il y a trop de valeurs aberrantes
+
+**6.3 Nettoyage des valeurs aberrantes**
+
+```{r}
+inc5000_growth <- inc5000[inc5000$growth <= Q3, ]
+
+boxplot(inc5000_growth$growth, main = "Boxplot of growth (Outliers Removed)",
+        ylab = "growth")
+```
+
+**7.Croissance par industrie**
+
+**7.1 Créer un diagramme en boîte groupé de croissance par industrie**
+
+```{r}
+ggplot(inc5000_growth, aes(x = industry, y = growth)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of growth by Industry") +
+  theme(axis.text.x = element_text(angle = 58, hjust = 1))
+```
+
+-J'ai remarqué qu'il y a quelques valeurs aberrantes qui devraient être supprimées car elles ne nous permettent pas de faire des statistiques correctes. Pour ce faire, nous devons vérifier l'écart-type du revenu par industrie et les valeurs correspondantes.
+
+**7.2 Nettoyage des valeurs aberrantes**
+
+```{r}
+inc5000_bound <- inc5000_growth %>%
+  group_by(industry) %>%
+  mutate(
+    upper_bound = quantile(growth, 0.75)
+  ) %>%
+  ungroup()
+
+inc5000_clean <- inc5000_bound %>%
+  filter(growth <= upper_bound)
+```
+
+**7.3 Calculer les statistiques sommaires pour de croissance par industrie.**
+
+```{r}
+summary_stats <- inc5000_clean %>%
+  group_by(industry) %>%
+  summarize(min = min(growth),
+            max = max(growth),
+            mean = mean(growth),
+            q1 = quantile(growth, probs = 0.25),
+            median = median(growth),
+            q3 = quantile(growth, probs = 0.75),
+            variance = var(growth),
+            sd = sd(growth)) %>%
+  arrange(desc(mean))  
+
+print(summary_stats,n=27)
+```
+
+**7.4 Trouver le groupe de croissance la plus élevée par industrie**
+
+```{r}
+top_growth <- inc5000_clean %>%
+  group_by(industry) %>%
+  slice_max(order_by = growth, n = 2)
+
+print(top_growth,n=54)
+```
+
+-Si nous exécutons à nouveau, nous remarquerons qu'il y a moins de valeurs aberrantes et que les statistiques sont meilleures.
+
+```{r}
+ggplot(inc5000_clean, aes(x = industry, y = growth)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of growth by Industry (Outlines Removed)") +
+  theme(axis.text.x = element_text(angle = 58, hjust = 1))
+```
+
+**8.Croissance par état**
+
+**8.1 Créer un diagramme en boîte groupé de croisssance par état.**
+
+```{r}
+ggplot(inc5000_growth, aes(x = state, y = growth)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of growth by state") +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+```
+
+-J'ai remarqué qu'il y a quelques valeurs aberrantes qui devraient être supprimées car elles ne nous permettent pas de faire des statistiques correctes. Pour ce faire, nous devons vérifier l'écart-type du revenu par industrie et les valeurs correspondantes.
+
+**8.2 Nettoyage des valeurs aberrantes.**
+
+```{r}
+inc5000_bound <- inc5000_growth %>%
+  group_by(state) %>%
+  mutate(
+    upper_bound = quantile(growth, 0.75)
+  ) %>%
+  ungroup()
+
+
+inc5000_clean <- inc5000_bound %>%
+  filter(growth <= upper_bound)
+
+inc5000_clean <- inc5000_clean %>%
+  filter(!(rank %in% c(1796,2600,2951,1479,3069,2559,2424,3011,2146,2202,2455,2563)))
+```
+
+**8.3 Calculer les statistiques sommaires pour la croissance par état.**
+
+```{r}
+summary_stats <- inc5000_clean %>%
+  group_by(state) %>%
+  summarize(min = min(growth),
+            max = max(growth),
+            mean = mean(growth),
+            q1 = quantile(growth, probs = 0.25),
+            median = median(growth),
+            q3 = quantile(growth, probs = 0.75),
+            variance = var(growth),
+            sd = sd(growth)) %>%
+  arrange(desc(mean)) 
+
+print(summary_stats,n=51)
+```
+
+**8.4 Trouver le groupe de croissance la plus élevéé par état.**
+
+```{r}
+top_growth <- inc5000_clean %>%
+  group_by(state) %>%
+  slice_max(order_by = growth, n = 2)
+
+print(top_growth,n=104)
+```
+
+-En utilisant le boxplot, summary_stats et top_growth, nous pouvons identifier les entreprises qui doivent être supprimées pour garantir de meilleures statistiques.
+
+-Si nous exécutons à nouveau, nous remarquerons qu'il y a moins de valeurs aberrantes et que les statistiques sont meilleures.
+
+```{r}
+ggplot(inc5000_clean, aes(x = state, y = growth)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of growth by state (Outlines Removed)") +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+```
+
+**9.Corrélation**
+
+**9.1 Corrélation entre revenue et workers**
+
+```{r}
+cor(inc5000$revenue, inc5000$workers, use = "complete.obs")
+```
+
+-La corrélation est de 0.1, ce qui indique que la relation entre le nombre de travailleurs et le revenue est très faible.
+
+**9.2 Corrélation entre revenue et yrs_on_list**
+
+```{r}
+cor(inc5000$revenue, inc5000$yrs_on_list)
+```
+
+-La corrélation est de 0.3, ce qui indique qu'il existe une relation bien que faible entre le revenue et les années sur la liste.
+
+**9.3 Corrélation entre growth et workers**
+
+```{r}
+cor(inc5000$growth, inc5000$workers, use = "complete.obs")
+```
+
+-La corrélation est de -0.01, ce qui indique qu'il n'y a pas de relation entre les travailleurs et growth.
+
+**9.4 Corrélation entre growth et yrs_on_list**
+
+```{r}
+cor(inc5000$growth, inc5000$yrs_on_list)
+```
+
+-La corrélation est de -0.16, ce qui indique qu'il y a une relation faible entre growth et les années sur la liste.
+
+**10.Density Plots**
+
+```{r}
+par(mfrow = c(1, 2))
+```
+
+**10.1 Density plot pour revenue**
+
+```{r}
+plot(density(inc5000$revenue), main = "Density Plot: Revenue", ylab = "Frequency", 
+     sub = paste("Skewness:", round(e1071::skewness(inc5000$revenue), 2)),
+     xlim = c(0, 200))  
+polygon(density(inc5000$revenue), col = "red")
+```
+
+**Conclusion :**
+
+-la variable revenue suit une distribution "Skewed left".
+
+**10.2 Density plot pour growth**
+
+```{r}
+plot(density(inc5000$growth), main = "Density Plot: Growth", ylab = "Frequency", 
+     sub = paste("Skewness:", round(e1071::skewness(inc5000$growth), 2)),
+     xlim = c(0, 600))  
+polygon(density(inc5000$growth), col = "blue")
+```
+
+**Conclusion :**
+
+-la variable growth suit une distribution "Skewed left".
+
+**11.Supprimer la ligne avec la valeur nulle de travailleur.**
+
+```{r}
+inc5000 <- inc5000[inc5000$rank != 3746, ]
+```
+
+**12.PCA**
+
+```{r}
+inc5000_numeric <- inc5000[, sapply(inc5000, is.numeric)]
+
+inc5000_standardize <- as.data.frame(scale(inc5000_numeric[2:7]))
+head(inc5000_standardize)
+inc5000.mat <- as.matrix(inc5000_standardize)
+cov.mat <- cor(inc5000_standardize)
+pca <- prcomp(inc5000_standardize,center = T,scale. = T)
+summary(pca)
+autoplot(pca, data = inc5000, colour = 'yrs_on_list')
+```
+
+-On peut remarquer que les contributions de PC1 et PC2 sont inférieures à 80 %. Par conséquent, nous devons ajouter PC3.
+
+```{r}
+PC_scores <- pca$x
+
+xlim <- c(min(PC_scores[,1]), max(PC_scores[,1]))
+ylim <- c(min(PC_scores[,2]), max(PC_scores[,2])) 
+zlim <- c(min(PC_scores[,3]), max(PC_scores[,3]))
+
+variance_explained <- pca$sdev^2 / sum(pca$sdev^2) * 100
+
+scatter3D(PC_scores[,1], PC_scores[,2], PC_scores[,3], 
+          pch = 16, colvar = inc5000$yrs_on_list,  
+          xlab = paste("PC1 (", round(variance_explained[1], 2), "%)"), 
+          ylab = paste("PC2 (", round(variance_explained[2], 2), "%)"), 
+          zlab = paste("PC3 (", round(variance_explained[3], 2), "%)"),
+          xlim = xlim, ylim = ylim, zlim = zlim,  
+          ticktype = "detailed",  
+          theta = -50, phi = 20,
+          cex.axis = 0.5) 
+```
+
+**13.Prédiction**
+
+**13.1 Régréssion linéaire**
+
+**13.1.1 Relation entre Revenue et years on list**
+
+```{r warning=FALSE}
+linearMod <- lm(inc5000$yrs_on_list ~ inc5000$revenue, inc5000=inc5000)
+print(linearMod)
+
+revenue = 2.517435+9.529e-03*inc5000['yrs_on_list']
+```
+
+```{r message=FALSE}
+ggplot(inc5000, aes(x = yrs_on_list, y = revenue)) +
+  geom_point() +  
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  labs(title = "Scatter Plot of Revenue vs. Years on List",
+       x = "Years on List",
+       y = "Revenue") +
+  theme_minimal()
+
+```
+
+**Interprétation :**
+
+-Dans la régression linéaire avec les années sur la liste comme entrée et revenue comme sortie, nous constatons que : lorsque la valeur des années sur la liste augmente d'une unité, la valeur de revenue augmente de 9,529e-03 unités. Bien que la relation entre ces deux variables soit très faible, le coefficient est statistiquement significatif. Avec un nombres des années nul, nous nous attendons à ce que la valeur de revenue soit égale à 2.517435. Le modèle n'est pas une bonne représentation de la variable revenue.
+
+```{r}
+summary(linearMod)$r.squared
+```
+
+-Elle explique seulement 9 % du jeu de données.
+
+**13.1.2Relation entre Revenue et Workers**
+
+```{r warning=FALSE}
+linearMod <- lm(inc5000$workers ~ inc5000$revenue, inc5000=inc5000)
+print(linearMod)
+
+revenue = 117.556+4.028*inc5000['workers']
+```
+
+```{r}
+summary(linearMod)$r.squared
+```
+
+-Elle explique seulement 1 % du jeu de données.
+
+```{r warning=FALSE,message=FALSE}
+
+ggplot(inc5000, aes(x = workers, y = revenue)) +
+  geom_point() +  
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  labs(title = "Scatter Plot of Revenue vs. Workers",
+       x = "Workers",
+       y = "Revenue") +
+  theme_minimal() +
+  scale_y_continuous(limits = c(0, 600)) +
+  scale_x_continuous(limits = c(0, 1000))  
+
+```
+
+**Interprétation :**
+
+-Dans la régression linéaire avec les travailleurs comme entrée et revenue comme sortie, nous constatons que : lorsque la valeur des travailleurs augmente d'une unité, la valeur de revenue augmente de 4.028 unités. Bien que la relation entre ces deux variables soit très faible, le coefficient est statistiquement significatif. Avec un nombres des travailleurs nul, nous nous attendons à ce que la valeur de revenue soit égale à 117.556. Le modèle n'est pas une bonne représentation de la variable revenue.
+
+**13.2 Prédiction RandomForest**
+
+**13.2.1 Relation entre Revenue et years on list**
+
+```{r}
+
+rf_model <- randomForest(revenue ~ yrs_on_list, data = inc5000)
+```
+
+```{r}
+plot(inc5000$yrs_on_list, inc5000$revenue, col = "blue",
+     main = "Random Forest Regression", 
+     xlab = "Years on list", ylab = "Revenue", xlim = c(0, 14), 
+     ylim = c(0, 100))
+points(inc5000$yrs_on_list, predict(rf_model), col = "red", pch = 16)
+legend("topright", legend = c("Actual", "Predicted"), col = c("blue", "red"),
+ pch = c(1, 1))
+```
+
+```{r echo=FALSE}
+plot(inc5000$yrs_on_list, inc5000$revenue, col = "blue", main = "Random Forest Regression", 
+     xlab = "Years on list", ylab = "Revenue", xlim = c(0, 14), 
+     ylim = c(0, 500))
+points(inc5000$yrs_on_list, predict(rf_model), col = "red", pch = 16)
+legend("topright", legend = c("Actual", "Predicted"), col = c("blue", "red"), pch = c(1, 1))
+```
+
+```{r echo=FALSE}
+plot(inc5000$yrs_on_list, inc5000$revenue, col = "blue", main = "Random Forest Regression", 
+     xlab = "Years on list", ylab = "Revenue", xlim = c(0, 14), 
+     ylim = c(0, 1000))
+points(inc5000$yrs_on_list, predict(rf_model), col = "red", pch = 16)
+legend("topright", legend = c("Actual", "Predicted"), col = c("blue", "red"), pch = c(1, 1))
+```
+
+**13.2.2 Relation entre Revenue et Workers**
+
+```{r}
+rf_model <- randomForest(revenue ~ workers, data = inc5000)
+```
+
+```{r}
+
+plot(inc5000$workers, inc5000$revenue, col = "blue", main = "Random Forest Regression", 
+     xlab = "Workers", ylab = "Revenue", xlim = c(0, 100), 
+     ylim = c(0, 100))
+points(inc5000$workers, predict(rf_model), col = "red", pch = 16)
+legend("topright", legend = c("Actual", "Predicted"), col = c("blue", "red"),
+pch = c(1, 1))
+```
+
+```{r echo=FALSE}
+plot(inc5000$workers, inc5000$revenue, col = "blue", main = "Random Forest Regression", 
+     xlab = "Workers", ylab = "Revenue", xlim = c(0, 1000), 
+     ylim = c(0, 600))
+points(inc5000$workers, predict(rf_model), col = "red", pch = 16)
+legend("topright", legend = c("Actual", "Predicted"), col = c("blue", "red"), pch = c(1, 1))
+```
+
+```{r echo=FALSE}
+plot(inc5000$workers, inc5000$revenue, col = "blue",
+     main = "Random Forest Regression", 
+     xlab = "Workers", ylab = "Revenue", xlim = c(0, 10000), 
+     ylim = c(0, 800))
+points(inc5000$workers, predict(rf_model), col = "red", pch = 16)
+legend("topright", legend = c("Actual", "Predicted"), col = c("blue", "red"), pch = c(1, 1))
+```
+
+**Interprétation**
+
+Nous remarquons que dans les deux cas, la prédiction RandomForest est meilleure que la régression linéaire.
